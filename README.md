@@ -24,7 +24,7 @@ gcc -o sudoku DancingLinksDS.c
 ### Run generator
 
 ``` bash
-gcc DancingLinksDS.c -o sudoku
+./sudoku
 ```
 
 ## Citation
