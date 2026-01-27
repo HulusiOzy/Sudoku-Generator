@@ -28,6 +28,8 @@ struct ColumnHeader {
 
 typedef struct {
     ColumnHeader *root;     //Master Header
+    ColumnHeader **columns; //Keep the 324 column pointers
+    Node *all_nodes;        //Flat arr of 729x4 nodes
     int *solution;          //Stack of chosen row ids
     int solution_size;      //Curr depth in the search tree
     int solutions_found;    //Total count of solutions found

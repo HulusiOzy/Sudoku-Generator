@@ -94,7 +94,7 @@ DLX *dlx_create(void) {
         }
     }
 
-    free(columns);
+    dlx->columns = columns; //Keeping this rather than freeing it
     return dlx;
 }
 
@@ -240,7 +240,10 @@ bool dlx_search(DLX *dlx, int depth) {
         }
 
         //Recurse
-        dlx_search(dlx, depth + 1);
+        if (dlx_search(dlx, depth + 1)) {
+            dlx_uncover(col);
+            return true;
+        }
 
         //Backtrack: uncover in reverse
         for (Node *left_node = row_node-> left;
@@ -302,7 +305,6 @@ bool dlx_search_random(DLX *dlx, int depth) {
     //Try rows in shuffled order
     dlx_cover(col);
 
-    bool found = false;
     for (int i = 0; i < num_rows; i++) {
         Node *row_node = rows[i];
         dlx->solution[depth] = row_node->row_id;
@@ -316,7 +318,6 @@ bool dlx_search_random(DLX *dlx, int depth) {
 
         //Recurse
         if (dlx_search_random(dlx, depth + 1)) {
-            found = true;
             free(rows);
             dlx_uncover(col);
             return true;    //Return on first sol
@@ -332,7 +333,7 @@ bool dlx_search_random(DLX *dlx, int depth) {
     
     dlx_uncover(col);
     free(rows);
-    return found;
+    return false;
 }
 
 void dlx_destroy(DLX *dlx){
@@ -360,9 +361,10 @@ void dlx_destroy(DLX *dlx){
         col_node = next_col; //Move to next col
     }
 
-    //Free root, sol array, dlx struct
+    //Free root, sol array, dlx struct, and now cols given we are keeping it in dlx_create
     free(dlx->root);
     free(dlx->solution);
+    free(dlx->columns);
     free(dlx);
 }
 
@@ -380,6 +382,141 @@ void dlx_extract_grid(DLX *dlx, int depth, int grid[9][9]) {
         decode_row_id(dlx->solution[i], &row, &col, &digit);
         grid[row][col] = digit + 1;  //Convert 0-based to 1-9
     }
+}
+
+//Surely theres a smart way of doing these rather than seperate funcs, but eh, im not a good enough programmer to know
+void dlx_apply_clue(DLX *dlx, int row, int col, int digit){
+    int constraint_cols[4];
+    get_constraint_columns(row, col, digit, constraint_cols);
+    
+    for (int i = 0; i < 4; i++){
+        dlx_cover(dlx->columns[constraint_cols[i]]);
+    }
+}
+
+void dlx_remove_clue(DLX *dlx, int row, int col, int digit) {
+    int constraint_cols[4];
+    get_constraint_columns(row, col, digit, constraint_cols);
+    
+    for (int i = 3; i >= 0; i--) {
+        dlx_uncover(dlx->columns[constraint_cols[i]]);
+    }
+}
+
+
+
+//Caller needs to reset dlx->solutions_found = 0 before calling. Didnt bake in because it seemd like a good design decision at the time.
+int dlx_count_solutions(DLX *dlx, int depth, int max_count) {
+    //Base case where all columns are covered, we have a solution
+    if (dlx->root->node.right == &(dlx->root->node)) {
+        dlx->solutions_found++;
+        return dlx->solutions_found;
+    }
+
+    //Choose a col with min size
+    ColumnHeader *col = dlx_choose_column(dlx);
+
+    //Dead end
+    if (col->size == 0){
+        return dlx->solutions_found;
+    }
+
+    dlx_cover(col);
+
+    for (Node *row_node = col->node.down;
+            row_node != &(col->node);
+            row_node = row_node->down) {
+     
+       dlx->solution[depth] = row_node->row_id;
+
+        for (Node *right_node = row_node->right;
+                right_node != row_node;
+                right_node = right_node->right) {
+            dlx_cover(right_node->column);
+        }
+
+        dlx_count_solutions(dlx, depth + 1, max_count);
+
+        //Early exit if we've hit max
+        if (dlx->solutions_found >= max_count) {
+            //Uncover before bailing
+            for (Node *left_node = row_node->left;
+                    left_node != row_node;
+                    left_node = left_node->left) {
+                dlx_uncover(left_node->column);
+            }
+            dlx_uncover(col);
+            return dlx->solutions_found;
+        }
+
+        //Backtrack
+        for (Node *left_node = row_node->left;
+                left_node != row_node;
+                left_node = left_node->left) {
+            dlx_uncover(left_node->column);
+        }
+    }
+
+    dlx_uncover(col);
+    return dlx->solutions_found;
+}
+
+int sudoku_create_puzzle(int full_grid[9][9], int puzzle_grid[9][9]) {
+    // Copy full grid to puzzle grid
+    for (int r = 0; r < 9; r++) {
+        for (int c = 0; c < 9; c++) {
+            puzzle_grid[r][c] = full_grid[r][c];
+        }
+    }
+
+    // Create position array and shuffle
+    int positions[81];
+    for (int i = 0; i < 81; i++) {
+        positions[i] = i;
+    }
+    for (int i = 80; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int temp = positions[i];
+        positions[i] = positions[j];
+        positions[j] = temp;
+    }
+
+    int clues_remaining = 81;
+
+    // Try removing each position
+    for (int i = 0; i < 81; i++) {
+        int pos = positions[i];
+        int r = pos / 9;
+        int c = pos % 9;
+
+        if (puzzle_grid[r][c] == 0) continue;  // Already removed
+
+        int saved_digit = puzzle_grid[r][c];
+        puzzle_grid[r][c] = 0;  // Try removal
+
+        // Fresh DLX, apply remaining clues
+        DLX *dlx = dlx_create();
+        for (int rr = 0; rr < 9; rr++) {
+            for (int cc = 0; cc < 9; cc++) {
+                if (puzzle_grid[rr][cc] != 0) {
+                    dlx_apply_clue(dlx, rr, cc, puzzle_grid[rr][cc] - 1);
+                }
+            }
+        }
+
+        dlx->solutions_found = 0;
+        int count = dlx_count_solutions(dlx, 0, 2);
+        dlx_destroy(dlx);
+
+        if (count >= 2) {
+            // Multiple solutions - restore
+            puzzle_grid[r][c] = saved_digit;
+        } else {
+            clues_remaining--;
+        }
+    }
+
+    return clues_remaining;
 }
 
 void dlx_print_solution_pretty(DLX *dlx, int depth) {
@@ -433,12 +570,19 @@ bool sudoku_generate(int grid[9][9]) {
 int main(void) {
     srand(time(NULL));
 
-    int grid[9][9];
+    int full_grid[9][9];
+    int puzzle_grid[9][9];
     
-    if (sudoku_generate(grid)) {
-        print_grid_pretty(grid); 
+    if (sudoku_generate(full_grid)) {
+        printf("Full solution:\n");
+        print_grid_pretty(full_grid);
+        
+        int clues = sudoku_create_puzzle(full_grid, puzzle_grid);
+        
+        printf("\nPuzzle (%d clues):\n", clues);
+        print_grid_pretty(puzzle_grid);
     } else {
-        printf("Failed to generate \n");
+        printf("Failed to generate\n");
     }
 
     return 0;
