@@ -59,6 +59,7 @@ static inline void get_constraint_columns(int row, int col, int digit, int *cols
 }
 
 DLX *dlx_create(void);
+void dlx_reset(DLX *dlx);
 void dlx_destroy(DLX *dlx);
 bool dlx_search(DLX *dlx, int depth);
 bool dlx_search_random(DLX *dlx, int depth);

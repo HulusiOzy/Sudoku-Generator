@@ -4,7 +4,7 @@
 #include <time.h>
 #include <stdbool.h> 
 
-static void add_row(DLX *dlx, ColumnHeader **columns, int row, int col, int digit);
+static void link_row(DLX *dlx, int row, int col, int digit); 
 
 //  Col header init/creator
 static ColumnHeader *create_column_header(int index) {
@@ -41,93 +41,120 @@ static Node *create_node(int row_id, ColumnHeader *column) {
     return node;
 }
 
+void dlx_reset(DLX *dlx) {
+    // Reset root's horizontal links
+    dlx->root->node.left = &dlx->root->node;
+    dlx->root->node.right = &dlx->root->node;
+
+    // Reset all columns and re-link to root
+    for (int i = 0; i < NUM_CONSTRAINTS; i++) {
+        ColumnHeader *col = dlx->columns[i];
+        
+        // Reset vertical links to self
+        col->node.up = &col->node;
+        col->node.down = &col->node;
+        col->size = 0;
+
+        // Re-link horizontally to root
+        ColumnHeader *last = (ColumnHeader *)dlx->root->node.left;
+        col->node.left = &last->node;
+        col->node.right = &dlx->root->node;
+        last->node.right = &col->node;
+        dlx->root->node.left = &col->node;
+    }
+
+    // Re-link all rows
+    for (int row = 0; row < N; row++) {
+        for (int col = 0; col < N; col++) {
+            for (int digit = 0; digit < N; digit++) {
+                link_row(dlx, row, col, digit);
+            }
+        }
+    }
+
+    dlx->solutions_found = 0;
+    dlx->solution_size = 0;
+}
+
 DLX *dlx_create(void) {
-    //Allocate the main DLX structure
     DLX *dlx = (DLX *)malloc(sizeof(DLX));
-    if (!dlx){
-        fprintf(stderr, "Failed to allocate DLX structure \n");
+    if (!dlx) {
+        fprintf(stderr, "Failed to allocate DLX structure\n");
         exit(1);
     }
 
-    //Init solution tracking
     dlx->solution_size = 0;
     dlx->solutions_found = 0;
-    dlx->max_solution_size = 81; //Max for sudoku
+    dlx->max_solution_size = 81;
     dlx->solution = (int *)malloc(81 * sizeof(int));
     if (!dlx->solution) {
-        fprintf(stderr, "Failed to allocate solution array \n");
+        fprintf(stderr, "Failed to allocate solution array\n");
         free(dlx);
         exit(1);
     }
 
-    //Create root header
+    // Allocate flat node array
+    dlx->all_nodes = (Node *)malloc(MAX_ROWS * 4 * sizeof(Node));
+    if (!dlx->all_nodes) {
+        fprintf(stderr, "Failed to allocate nodes array\n");
+        free(dlx->solution);
+        free(dlx);
+        exit(1);
+    }
+
     dlx->root = create_column_header(-1);
     strcpy(dlx->root->name, "ROOT");
 
-    //Create array of 324 column headers
-    ColumnHeader **columns = (ColumnHeader **)malloc(NUM_CONSTRAINTS * sizeof(ColumnHeader *));
-    if (!columns) {
-        fprintf(stderr, "Failed to allocate columns array \n");
+    dlx->columns = (ColumnHeader **)malloc(NUM_CONSTRAINTS * sizeof(ColumnHeader *));
+    if (!dlx->columns) {
+        fprintf(stderr, "Failed to allocate columns array\n");
+        free(dlx->all_nodes);
         free(dlx->solution);
         free(dlx->root);
         free(dlx);
         exit(1);
     }
 
-    //Create all 324 column headers and link them
+    // Create column headers (one-time allocation)
     for (int i = 0; i < NUM_CONSTRAINTS; i++) {
-        columns[i] = create_column_header(i);
-
-        ColumnHeader *last = (ColumnHeader *)dlx->root->node.left;
-        columns[i]->node.left = &(last->node);
-        columns[i]->node.right = &(dlx->root->node);
-        last->node.right = &(columns[i]->node);
-        dlx->root->node.left = &(columns[i]->node);
+        dlx->columns[i] = create_column_header(i);
     }
 
-    //Create all 729 possible rows
-    for (int row = 0; row < N; row++) {
-        for (int col = 0; col < N; col++) {
-            for (int digit = 0; digit < N; digit++) {
-                add_row(dlx, columns, row, col, digit);
-            }
-        }
-    }
+    // Use reset to wire everything
+    dlx_reset(dlx);
 
-    dlx->columns = columns; //Keeping this rather than freeing it
     return dlx;
 }
 
-static void add_row(DLX *dlx, ColumnHeader **columns, int row, int col, int digit) {
+static void link_row(DLX *dlx, int row, int col, int digit) {
     int row_id = encode_row_id(row, col, digit);
+    int node_base = row_id * 4;
 
-    //Get 4 constraint cols that this placement satisfies
     int constraint_cols[4];
     get_constraint_columns(row, col, digit, constraint_cols);
 
-    //Create 4 nodes, one for each constraint
-    Node *nodes[4];
-
     for (int i = 0; i < 4; i++) {
-        int  col_idx = constraint_cols[i];
-        nodes[i] = create_node(row_id, columns[col_idx]);
+        Node *node = &dlx->all_nodes[node_base + i];
+        ColumnHeader *col_header = dlx->columns[constraint_cols[i]];
 
-        //Link vertically to col
-        ColumnHeader *col_header = columns[col_idx];
+        node->row_id = row_id;
+        node->column = col_header;
+
+        // Link vertically
         Node *last = col_header->node.up;
-
-        nodes[i]->up = last;
-        nodes[i]->down = &(col_header->node);
-        last->down = nodes[i];
-        col_header->node.up = nodes[i];
+        node->up = last;
+        node->down = &col_header->node;
+        last->down = node;
+        col_header->node.up = node;
 
         col_header->size++;
     }
 
-    //Link horizontally
+    // Link horizontally
     for (int i = 0; i < 4; i++) {
-            nodes[i]->left = nodes[(i + 3) % 4];
-            nodes[i]->right = nodes[(i+1) % 4];
+        Node *node = &dlx->all_nodes[node_base + i];
+        node->left = &dlx->all_nodes[node_base + ((i + 3) % 4)];
+        node->right = &dlx->all_nodes[node_base + ((i + 1) % 4)];
     }
 }
 
@@ -336,35 +363,17 @@ bool dlx_search_random(DLX *dlx, int depth) {
     return false;
 }
 
-void dlx_destroy(DLX *dlx){
+void dlx_destroy(DLX *dlx) {
     if (!dlx) return;
 
-    //Free all nodes in all cols!
-    for (Node *col_node = dlx->root->node.right;
-            col_node != &(dlx->root->node);
-            /* dont advance here, we are deleting*/) {
-
-        ColumnHeader *col = (ColumnHeader *)col_node;
-        Node *next_col = col_node->right; //Save next before del
-
-        //Free all nodes in this col
-        Node *node = col->node.down;
-        while (node != &(col->node)) {
-            Node *next_node = node->down;
-            free(node); //Free the node
-            node = next_node;
-        }
-
-        //Free the header
-        free(col);
-
-        col_node = next_col; //Move to next col
+    for (int i = 0; i < NUM_CONSTRAINTS; i++) {
+        free(dlx->columns[i]);
     }
 
-    //Free root, sol array, dlx struct, and now cols given we are keeping it in dlx_create
+    free(dlx->columns);
+    free(dlx->all_nodes);
     free(dlx->root);
     free(dlx->solution);
-    free(dlx->columns);
     free(dlx);
 }
 
@@ -462,14 +471,12 @@ int dlx_count_solutions(DLX *dlx, int depth, int max_count) {
 }
 
 int sudoku_create_puzzle(int full_grid[9][9], int puzzle_grid[9][9]) {
-    // Copy full grid to puzzle grid
     for (int r = 0; r < 9; r++) {
         for (int c = 0; c < 9; c++) {
             puzzle_grid[r][c] = full_grid[r][c];
         }
     }
 
-    // Create position array and shuffle
     int positions[81];
     for (int i = 0; i < 81; i++) {
         positions[i] = i;
@@ -481,21 +488,21 @@ int sudoku_create_puzzle(int full_grid[9][9], int puzzle_grid[9][9]) {
         positions[j] = temp;
     }
 
+    DLX *dlx = dlx_create();  // One allocation
     int clues_remaining = 81;
 
-    // Try removing each position
     for (int i = 0; i < 81; i++) {
         int pos = positions[i];
         int r = pos / 9;
         int c = pos % 9;
 
-        if (puzzle_grid[r][c] == 0) continue;  // Already removed
+        if (puzzle_grid[r][c] == 0) continue;
 
         int saved_digit = puzzle_grid[r][c];
-        puzzle_grid[r][c] = 0;  // Try removal
+        puzzle_grid[r][c] = 0;
 
-        // Fresh DLX, apply remaining clues
-        DLX *dlx = dlx_create();
+        dlx_reset(dlx);  // Fast pointer rewiring, no malloc
+
         for (int rr = 0; rr < 9; rr++) {
             for (int cc = 0; cc < 9; cc++) {
                 if (puzzle_grid[rr][cc] != 0) {
@@ -506,16 +513,15 @@ int sudoku_create_puzzle(int full_grid[9][9], int puzzle_grid[9][9]) {
 
         dlx->solutions_found = 0;
         int count = dlx_count_solutions(dlx, 0, 2);
-        dlx_destroy(dlx);
 
         if (count >= 2) {
-            // Multiple solutions - restore
             puzzle_grid[r][c] = saved_digit;
         } else {
             clues_remaining--;
         }
     }
 
+    dlx_destroy(dlx);  // One free
     return clues_remaining;
 }
 
