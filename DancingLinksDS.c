@@ -560,6 +560,13 @@ void print_grid_pretty(int grid[9][9]) {
     }
 }
 
+void print_puzzle_line(int grid[9][9]) {
+    for (int r = 0; r < 9; r++)
+        for (int c = 0; c < 9; c++)
+            putchar(grid[r][c] ? '0' + grid[r][c] : '.');
+    putchar('\n');
+}
+
 //High levels
 bool sudoku_generate(int grid[9][9]) {
     DLX *dlx = dlx_create();
@@ -587,6 +594,7 @@ int main(void) {
         
         printf("\nPuzzle (%d clues):\n", clues);
         print_grid_pretty(puzzle_grid);
+        print_puzzle_line(puzzle_grid);
     } else {
         printf("Failed to generate\n");
     }
