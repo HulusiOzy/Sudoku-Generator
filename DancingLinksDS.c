@@ -220,13 +220,6 @@ static void pretty(int g[9][9]) {
     }
 }
 
-void line(int grid[9][9]) {
-    for (int r = 0; r < 9; r++)
-        for (int c = 0; c < 9; c++)
-            putchar(grid[r][c] ? '0' + grid[r][c] : '.');
-    putchar('\n');
-}
-
 int main(void) {
     srand(time(NULL));
     int full[9][9], puzzle[9][9];
@@ -238,5 +231,7 @@ int main(void) {
     pretty(full);
     printf("\nPuzzle (%d clues):\n", clues);
     pretty(puzzle);
-    line(puzzle);
+    for (int i = 0; i < 81; i++)
+        putchar(puzzle[i/9][i%9] ? '0' + puzzle[i/9][i%9] : '.');
+    putchar('\n');
 }

@@ -44,16 +44,23 @@ static void init_tables(void) {
             box_cell[b][bp] = (b/3)*27 + (bp/3)*9 + (b%3)*3 + bp%3;
 }
 
-static inline void eliminate(int i, int d) {
+static inline int eliminate(int i, int d) {
     u16 m = 1 << d;
-    cands[i] &= ~m;
+    u16 old = cands[i];
+    if (!(old & m)) return -1;
+    
+    u16 rem = old ^ m;
+    cands[i] = rem;
+    
     int r = cell_row[i], c = cell_col[i];
     row_mask[d][r] &= ~(1 << c);
     col_mask[d][c] &= ~(1 << r);
     box_mask[d][cell_box[i]] &= ~(1 << cell_boxpos[i]);
+    
+    return (rem && !(rem & (rem-1))) ? i : -1;
 }
 
-static inline void place(int i, int d) {
+static void place(int i, int d) {
     int r = cell_row[i], c = cell_col[i], b = cell_box[i], bp = cell_boxpos[i];
     
     for (int dd = 0; dd < 9; dd++) {
@@ -70,8 +77,18 @@ static inline void place(int i, int d) {
     cands[i] = 0;
     unsolved--;
     
-    for (int p = 0; p < 20; p++)
-        eliminate(peers[i][p], d);
+    int naked[20];
+    int nc = 0;
+    
+    for (int p = 0; p < 20; p++) {
+        int ns = eliminate(peers[i][p], d);
+        if (ns >= 0) naked[nc++] = ns;
+    }
+    
+    for (int n = 0; n < nc; n++) {
+        if (!cands[naked[n]]) continue;
+        place(naked[n], __builtin_ctz(cands[naked[n]]));
+    }
 }
 
 static void init_puzzle(const char *s) {
