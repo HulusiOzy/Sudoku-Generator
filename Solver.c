@@ -56,11 +56,12 @@ static inline int eliminate(int i, int d) {
     row_mask[d][r] &= ~(1 << c);
     col_mask[d][c] &= ~(1 << r);
     box_mask[d][cell_box[i]] &= ~(1 << cell_boxpos[i]);
-    
+   
+    if (!rem) return -2; 
     return (rem && !(rem & (rem-1))) ? i : -1;
 }
 
-static void place(int i, int d) {
+static inline void place(int i, int d) {
     int r = cell_row[i], c = cell_col[i], b = cell_box[i], bp = cell_boxpos[i];
     
     for (int dd = 0; dd < 9; dd++) {
@@ -82,6 +83,7 @@ static void place(int i, int d) {
     
     for (int p = 0; p < 20; p++) {
         int ns = eliminate(peers[i][p], d);
+        if (ns == -2) { unsolved = -1; return; } //Finishes the curr loop before the main function notices?
         if (ns >= 0) naked[nc++] = ns;
     }
     
@@ -92,39 +94,22 @@ static void place(int i, int d) {
 }
 
 static void init_puzzle(const char *s) {
-    unsolved = 0;
-    memset(row_mask, 0, sizeof(row_mask));
-    memset(col_mask, 0, sizeof(col_mask));
-    memset(box_mask, 0, sizeof(box_mask));
+    unsolved = 81;
     
-    for (int i = 0; i < 81; i++) {
-        if (s[i] >= '1' && s[i] <= '9') {
-            grid[i] = s[i] - '0';
-            cands[i] = 0;
-        } else {
-            grid[i] = 0;
-            cands[i] = 0x1FF;
-            unsolved++;
+    memset(grid, 0, 81 * sizeof(u8));
+    for (int i = 0; i < 81; i++) cands[i] = 0x1FF;   
+ 
+    for (int d = 0; d < 9; d++) {
+        for (int u = 0; u < 9; u++) {
+            row_mask[d][u] = 0x1FF;
+            col_mask[d][u] = 0x1FF;
+            box_mask[d][u] = 0x1FF;
         }
     }
     
     for (int i = 0; i < 81; i++) {
-        if (!grid[i]) continue;
-        int d = grid[i] - 1;
-        for (int p = 0; p < 20; p++)
-            cands[peers[i][p]] &= ~(1 << d);
-    }
-    
-    for (int i = 0; i < 81; i++) {
-        if (grid[i]) continue;
-        int r = cell_row[i], c = cell_col[i], b = cell_box[i], bp = cell_boxpos[i];
-        for (int d = 0; d < 9; d++) {
-            if (cands[i] & (1 << d)) {
-                row_mask[d][r] |= (1 << c);
-                col_mask[d][c] |= (1 << r);
-                box_mask[d][b] |= (1 << bp);
-            }
-        }
+        if (s[i] >= '1' && s[i] <= '9')
+            place(i, s[i] - '1');
     }
 }
 
