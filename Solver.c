@@ -340,8 +340,6 @@ static int naked_pairs(void) {
 }
 
 static int hidden_pairs(void) {
-    int changed = 0;
-    
     for (int r = 0; r < 9; r++) {
         int valid[9], nv = 0;
         for (int d = 0; d < 9; d++)
@@ -352,6 +350,7 @@ static int hidden_pairs(void) {
             for (int j = i + 1; j < nv; j++) {
                 if (row_mask[valid[j]][r] != m1) continue;
                 u16 pair = (1 << valid[i]) | (1 << valid[j]);
+                int found = 0;
                 u16 m = m1;
                 while (m) {
                     int c = __builtin_ctz(m);
@@ -359,13 +358,14 @@ static int hidden_pairs(void) {
                     int cell = r * 9 + c;
                     u16 elim = cands[cell] & ~pair;
                     if (!elim) continue;
-                    changed = 1;
+                    found = 1;
                     while (elim) {
                         int dd = __builtin_ctz(elim);
                         elim &= elim - 1;
                         if (eliminate(cell, dd) == -2) { unsolved = -1; return 1; }
                     }
                 }
+                if (found) return 1;
             }
         }
     }
@@ -380,6 +380,7 @@ static int hidden_pairs(void) {
             for (int j = i + 1; j < nv; j++) {
                 if (col_mask[valid[j]][c] != m1) continue;
                 u16 pair = (1 << valid[i]) | (1 << valid[j]);
+                int found = 0;
                 u16 m = m1;
                 while (m) {
                     int r = __builtin_ctz(m);
@@ -387,13 +388,14 @@ static int hidden_pairs(void) {
                     int cell = r * 9 + c;
                     u16 elim = cands[cell] & ~pair;
                     if (!elim) continue;
-                    changed = 1;
+                    found = 1;
                     while (elim) {
                         int dd = __builtin_ctz(elim);
                         elim &= elim - 1;
                         if (eliminate(cell, dd) == -2) { unsolved = -1; return 1; }
                     }
                 }
+                if (found) return 1;
             }
         }
     }
@@ -408,6 +410,7 @@ static int hidden_pairs(void) {
             for (int j = i + 1; j < nv; j++) {
                 if (box_mask[valid[j]][b] != m1) continue;
                 u16 pair = (1 << valid[i]) | (1 << valid[j]);
+                int found = 0;
                 u16 m = m1;
                 while (m) {
                     int bp = __builtin_ctz(m);
@@ -415,18 +418,19 @@ static int hidden_pairs(void) {
                     int cell = box_cell[b][bp];
                     u16 elim = cands[cell] & ~pair;
                     if (!elim) continue;
-                    changed = 1;
+                    found = 1;
                     while (elim) {
                         int dd = __builtin_ctz(elim);
                         elim &= elim - 1;
                         if (eliminate(cell, dd) == -2) { unsolved = -1; return 1; }
                     }
                 }
+                if (found) return 1;
             }
         }
     }
     
-    return changed;
+    return 0;
 }
 
 static int naked_triples(void) {
@@ -571,6 +575,7 @@ static int hidden_triples(void) {
                     u16 cells = u12 | m3;
                     if (__builtin_popcount(cells) != 3) continue;
                     u16 triple = (1 << valid[i]) | (1 << valid[j]) | (1 << valid[k]);
+                    int found = 0;
                     u16 m = cells;
                     while (m) {
                         int c = __builtin_ctz(m);
@@ -578,13 +583,19 @@ static int hidden_triples(void) {
                         int cell = r * 9 + c;
                         u16 elim = cands[cell] & ~triple;
                         if (!elim) continue;
+                        found = 1;
                         while (elim) {
                             int dd = __builtin_ctz(elim);
                             elim &= elim - 1;
-                            if (eliminate(cell, dd) == -2) { unsolved = -1; return 1; }
+                            int ns = eliminate(cell, dd);
+                            if (ns == -2) { unsolved = -1; return 1; }
+                            if (ns >= 0) {
+                                place(ns, __builtin_ctz(cands[ns]));
+                                if (unsolved <= 0) return 1;
+                            }
                         }
-                        return 1;
                     }
+                    if (found) return 1;
                 }
             }
         }
@@ -609,6 +620,7 @@ static int hidden_triples(void) {
                     u16 cells = u12 | m3;
                     if (__builtin_popcount(cells) != 3) continue;
                     u16 triple = (1 << valid[i]) | (1 << valid[j]) | (1 << valid[k]);
+                    int found = 0;
                     u16 m = cells;
                     while (m) {
                         int r = __builtin_ctz(m);
@@ -616,13 +628,19 @@ static int hidden_triples(void) {
                         int cell = r * 9 + c;
                         u16 elim = cands[cell] & ~triple;
                         if (!elim) continue;
+                        found = 1;
                         while (elim) {
                             int dd = __builtin_ctz(elim);
                             elim &= elim - 1;
-                            if (eliminate(cell, dd) == -2) { unsolved = -1; return 1; }
+                            int ns = eliminate(cell, dd);
+                            if (ns == -2) { unsolved = -1; return 1; }
+                            if (ns >= 0) {
+                                place(ns, __builtin_ctz(cands[ns]));
+                                if (unsolved <= 0) return 1;
+                            }
                         }
-                        return 1;
                     }
+                    if (found) return 1;
                 }
             }
         }
@@ -647,6 +665,7 @@ static int hidden_triples(void) {
                     u16 cells = u12 | m3;
                     if (__builtin_popcount(cells) != 3) continue;
                     u16 triple = (1 << valid[i]) | (1 << valid[j]) | (1 << valid[k]);
+                    int found = 0;
                     u16 m = cells;
                     while (m) {
                         int bp = __builtin_ctz(m);
@@ -654,13 +673,19 @@ static int hidden_triples(void) {
                         int cell = box_cell[b][bp];
                         u16 elim = cands[cell] & ~triple;
                         if (!elim) continue;
+                        found = 1;
                         while (elim) {
                             int dd = __builtin_ctz(elim);
                             elim &= elim - 1;
-                            if (eliminate(cell, dd) == -2) { unsolved = -1; return 1; }
+                            int ns = eliminate(cell, dd);
+                            if (ns == -2) { unsolved = -1; return 1; }
+                            if (ns >= 0) {
+                                place(ns, __builtin_ctz(cands[ns]));
+                                if (unsolved <= 0) return 1;
+                            }
                         }
-                        return 1;
                     }
+                    if (found) return 1;
                 }
             }
         }
